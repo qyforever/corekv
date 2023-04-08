@@ -80,6 +80,7 @@ type Skiplist struct {
 // IncrRef increases the refcount
 func (s *Skiplist) IncrRef() {
 	atomic.AddInt32(&s.ref, 1)
+	//用于将增量自动添加到* addr,导入“sync/atomic”
 }
 
 // DecrRef decrements the refcount, deallocating the Skiplist when done using it
@@ -135,22 +136,27 @@ func NewSkiplist(arenaSize int64) *Skiplist {
 }
 
 func (s *node) getValueOffset() (uint32, uint32) {
-	value := atomic.LoadUint64(&s.value)
+	value := atomic.LoadUint64(&s.value) //函数atomic.LoadUint64接受一个*Uint64类型的指针值，并会返回该指针值指向的那个值。
+	// 原子的读取变量value的值并把它赋给变量v
 	return decodeValue(value)
 }
 
+// 获取节点的key
 func (s *node) key(arena *Arena) []byte {
 	return arena.getKey(s.keyOffset, s.keySize)
 }
 
+// 更新节点的value
 func (s *node) setValue(arena *Arena, vo uint64) {
 	atomic.StoreUint64(&s.value, vo)
 }
 
+// 获取该结点在h层的next 指针
 func (s *node) getNextOffset(h int) uint32 {
 	return atomic.LoadUint32(&s.tower[h])
 }
 
+// 更新节点的next指针
 func (s *node) casNextOffset(h int, old, val uint32) bool {
 	return atomic.CompareAndSwapUint32(&s.tower[h], old, val)
 }
@@ -202,6 +208,7 @@ func (s *Skiplist) findNear(key []byte, less bool, allowEqual bool) (*node, bool
 				return nil, false
 			}
 			// Try to return x. Make sure it is not a head node.
+			//链表中无任何元素
 			if x == s.getHead() {
 				return nil, false
 			}
@@ -447,12 +454,16 @@ func (s *SkipListIterator) Valid() bool { return s.n != nil }
 
 // Key returns the key at the current position.
 func (s *SkipListIterator) Key() []byte {
-	//implement me here
+
+	//implement me
+	return s.list.arena.getKey(s.n.keyOffset, s.n.keySize)
 }
 
 // Value returns value.
 func (s *SkipListIterator) Value() ValueStruct {
 	//implement me here
+	valOffset, valSize := s.n.getValueOffset()
+	return s.list.arena.getVal(valOffset, valSize)
 }
 
 // ValueUint64 returns the uint64 value of the current node.
@@ -475,16 +486,19 @@ func (s *SkipListIterator) Prev() {
 // 找到 >= target 的第一个节点
 func (s *SkipListIterator) Seek(target []byte) {
 	//implement me here
+	s.n, _ = s.list.findNear(target, true, true)
 }
 
 // 找到 <= target 的第一个节点
 func (s *SkipListIterator) SeekForPrev(target []byte) {
 	//implement me here
+	s.n, _ = s.list.findNear(target, true, true)
 }
 
-//定位到链表的第一个节点
+// 定位到链表的第一个节点
 func (s *SkipListIterator) SeekToFirst() {
 	//implement me here
+	s.n = s.list.getNext(s.list.getHead(), 0)
 }
 
 // SeekToLast seeks position at the last entry in list.
@@ -502,6 +516,7 @@ type UniIterator struct {
 }
 
 // FastRand is a fast thread local random function.
+//
 //go:linkname FastRand runtime.fastrand
 func FastRand() uint32
 
