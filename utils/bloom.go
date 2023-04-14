@@ -46,7 +46,6 @@ func (f Filter) MayContain(h uint32) bool {
 		}
 		h += delta
 	}
-
 	return true
 }
 
