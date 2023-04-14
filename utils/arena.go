@@ -9,13 +9,14 @@ import (
 
 type Arena struct {
 	n   uint32 //offset
-	buf []byte
+	buf []byte // Arena申请的内存空间
 }
 
-const MaxNodeSize = int(unsafe.Sizeof(Element{}))
-
-const offsetSize = int(unsafe.Sizeof(uint32(0)))
-const nodeAlign = int(unsafe.Sizeof(uint64(0))) - 1
+const (
+	MaxNodeSize = int(unsafe.Sizeof(Element{}))
+	offsetSize  = int(unsafe.Sizeof(uint32(0))) // 分配一个32位无符号整数的内存大小
+	nodeAlign   = int(unsafe.Sizeof(uint64(0))) - 1
+)
 
 func newArena(n int64) *Arena {
 	out := &Arena{
@@ -29,23 +30,19 @@ func (s *Arena) allocate(sz uint32) uint32 {
 	//implement me here！！！
 	// 在 arena 中分配指定大小的内存空间
 	offset := atomic.AddUint32(&s.n, sz)
-	buflen := len(s.buf)
-	//如果剩下的空间 不足以分配给下一个
-	if buflen-int(offset) < MaxNodeSize {
-		groupby := uint32(len(s.buf))
-		if groupby < 1<<30 {
-			groupby = 1 << 30
+	if len(s.buf)-int(offset) < MaxNodeSize {
+		upBy := uint32(len(s.buf))
+		if upBy > 1<<30 {
+			upBy = 1 << 30
+		}
+		if upBy < sz {
+			upBy = sz
 		}
 
-		if groupby < sz {
-			groupby = sz
-		}
-
-		newbuf := make([]byte, uint32(len(s.buf))+groupby)
-		AssertTrue(len(s.buf) == copy(newbuf, s.buf))
-		s.buf = newbuf
+		newBuf := make([]byte, len(s.buf)+int(upBy))
+		AssertTrue(len(s.buf) == copy(newBuf, s.buf))
+		s.buf = newBuf
 	}
-
 	return offset - sz
 }
 
@@ -55,16 +52,14 @@ func (s *Arena) putNode(height int) uint32 {
 	//implement me here！！！
 	// 这里的 node 要保存 value 、key 和 next 指针值
 	// 所以要计算清楚需要申请多大的内存空间
+	unusedSize := (defaultMaxLevel - height) * offsetSize
+	l := uint32(MaxNodeSize - unusedSize + nodeAlign)
+	n := s.allocate(l)
 
-	// levels 里面需要的大小
-	unusedsize := (defaultMaxLevel - height) * offsetSize
-
-	l := uint32(MaxNodeSize - unusedsize + nodeAlign)
-
-	n := s.allocate(uint32(l))
-	//内存对齐
-	m := (n + uint32(nodeAlign)) & ^uint32(nodeAlign)
+	m := (n + uint32(nodeAlign)) &^ uint32(nodeAlign)
 	return m
+	// levels 里面需要的大小
+
 }
 
 func (s *Arena) putVal(v ValueStruct) uint32 {
