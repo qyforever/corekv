@@ -2,14 +2,14 @@ package cache
 
 import (
 	"container/list"
-	xxhash "github.com/cespare/xxhash/v2"
+	"github.com/cespare/xxhash/v2"
 	"sync"
 	"unsafe"
 )
 
 type Cache struct {
-	m         sync.RWMutex
-	lru       *windowLRU
+	m         sync.RWMutex // 读写锁
+	lru       *windowLRU   //
 	slru      *segmentedLRU
 	door      *BloomFilter
 	c         *cmSketch
