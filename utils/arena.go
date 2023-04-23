@@ -8,8 +8,9 @@ import (
 )
 
 type Arena struct {
-	n   uint32 //offset
-	buf []byte // Arena申请的内存空间
+	n          uint32 //offset 当前Arena已分配出去的内存大小
+	shouldGrow bool
+	buf        []byte // Arena申请的内存空间
 }
 
 const (
@@ -30,24 +31,28 @@ func (s *Arena) allocate(sz uint32) uint32 {
 	//implement me here！！！
 	// 在 arena 中分配指定大小的内存空间
 	offset := atomic.AddUint32(&s.n, sz)
-	if len(s.buf)-int(offset) < MaxNodeSize {
-		upBy := uint32(len(s.buf))
-		if upBy > 1<<30 {
-			upBy = 1 << 30
+	if !s.shouldGrow {
+		AssertTrue(int(offset) <= len(s.buf))
+		return offset - sz
+	}
+	if int(offset) > len(s.buf)-MaxNodeSize {
+		growBy := uint32(len(s.buf))
+		if growBy > 1<<30 {
+			growBy = 1 << 30
 		}
-		if upBy < sz {
-			upBy = sz
+		if growBy < sz {
+			growBy = sz
 		}
 
-		newBuf := make([]byte, len(s.buf)+int(upBy))
+		newBuf := make([]byte, len(s.buf)+int(growBy))
 		AssertTrue(len(s.buf) == copy(newBuf, s.buf))
 		s.buf = newBuf
 	}
-	return offset - sz
+	return offset - sz // 返回起始地址
 }
 
-//在arena里开辟一块空间，用以存放sl中的节点
-//返回值为在arena中的offset
+// 在arena里开辟一块空间，用以存放sl中的节点
+// 返回值为在arena中的offset
 func (s *Arena) putNode(height int) uint32 {
 	//implement me here！！！
 	// 这里的 node 要保存 value 、key 和 next 指针值
@@ -56,7 +61,7 @@ func (s *Arena) putNode(height int) uint32 {
 	l := uint32(MaxNodeSize - unusedSize + nodeAlign)
 	n := s.allocate(l)
 
-	m := (n + uint32(nodeAlign)) &^ uint32(nodeAlign)
+	m := (n + uint32(nodeAlign)) &^ uint32(nodeAlign) //将运算符左边数据相异的位保留，相同位清零
 	return m
 	// levels 里面需要的大小
 
@@ -66,8 +71,8 @@ func (s *Arena) putVal(v ValueStruct) uint32 {
 	//implement me here！！！
 	//将 Value 值存储到 arena 当中
 	// 并且将指针返回，返回的指针值应被存储在 Node 节点中
-
-	offset := s.allocate(v.EncodedSize())
+	l := uint32(v.EncodedSize())
+	offset := s.allocate(l)
 	v.EncodeValue(s.buf[offset:])
 
 	return offset
@@ -104,7 +109,7 @@ func (s *Arena) getVal(offset uint32, size uint32) (v ValueStruct) {
 	return
 }
 
-//用element在内存中的地址 - arena首字节的内存地址，得到在arena中的偏移量
+// 用element在内存中的地址 - arena首字节的内存地址，得到在arena中的偏移量
 func (s *Arena) getElementOffset(nd *Element) uint32 {
 	//implement me here！！！
 	//获取某个节点，在 arena 当中的偏移量
