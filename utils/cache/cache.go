@@ -23,20 +23,20 @@ type Options struct {
 }
 
 func NewCache(size int) *Cache {
-	const lruPct = 1
-	lruSz := (lruPct * size) / 100
+	const lruPct = 1               //定义window部分缓存所占百分比
+	lruSz := (lruPct * size) / 100 //缓存部分容量
 
 	if lruSz < 1 {
 		lruSz = 1
 	}
 
-	slruSz := int(float64(size) * ((100 - lruPct) / 100.0))
+	slruSz := int(float64(size) * ((100 - lruPct) / 100.0)) //计算lFU部分缓存容量
 
 	if slruSz < 1 {
 		slruSz = 1
 	}
 
-	slruO := int(0.2 * float64(slruSz))
+	slruO := int(0.2 * float64(slruSz)) // stageone
 
 	if slruO < 1 {
 		slruO = 1
@@ -72,17 +72,18 @@ func (c *Cache) set(key, value interface{}) bool {
 
 	eitem, evicted := c.lru.add(i)
 
-	if !evicted {
+	if !evicted { //如果window未满
 		return true
 	}
 
-	victim := c.slru.victim()
+	victim := c.slru.victim() //如果
 
 	if victim == nil {
 		c.slru.add(eitem)
 		return true
 	}
 
+	//
 	if !c.door.Allow(uint32(keyHash)) {
 		return true
 	}

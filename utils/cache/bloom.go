@@ -78,7 +78,7 @@ func (f *BloomFilter) Insert(h uint32) bool {
 	return true
 }
 
-func (f *BloomFilter) AllowKey(k []byte) bool {
+func (f *BloomFilter) AllowKey(k []byte) bool { //当key在的时候，返回true，不在时插入到滤波器
 	if f == nil {
 		return true
 	}

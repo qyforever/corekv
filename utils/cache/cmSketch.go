@@ -7,7 +7,7 @@ import (
 )
 
 const (
-	cmDepth = 4
+	cmDepth = 4 //4个bit位表示频率
 )
 
 type cmSketch struct {
@@ -39,7 +39,7 @@ func (s *cmSketch) Increment(hashed uint64) {
 	}
 }
 
-func (s *cmSketch) Estimate(hashed uint64) int64 {
+func (s *cmSketch) Estimate(hashed uint64) int64 { //找到最小的计数值
 	//implement me here!!!
 	min := byte(255)
 	for i := range s.rows {
@@ -53,7 +53,7 @@ func (s *cmSketch) Estimate(hashed uint64) int64 {
 }
 
 // Reset halves all counter values.
-func (s *cmSketch) Reset() {
+func (s *cmSketch) Reset() { //
 	for _, r := range s.rows {
 		r.reset()
 	}
@@ -66,7 +66,7 @@ func (s *cmSketch) Clear() {
 	}
 }
 
-func next2Power(x int64) int64 {
+func next2Power(x int64) int64 { //快速计算最接近x的二次幂的算法
 	x--
 	x |= x >> 1
 	x |= x >> 2
@@ -81,11 +81,11 @@ func next2Power(x int64) int64 {
 type cmRow []byte
 
 func newCmRow(numCounters int64) cmRow {
-	return make(cmRow, numCounters/2)
+	return make(cmRow, numCounters/2) // 一个uint8可以为2个计数
 }
 
 func (r cmRow) get(n uint64) byte {
-	return r[n/2] >> ((n & 1) * 4) & 0x0f
+	return r[n/2] >> ((n & 1) * 4) & 0x0f //取前4Bit还是后4Bit
 }
 
 func (r cmRow) increment(n uint64) {
@@ -97,13 +97,13 @@ func (r cmRow) increment(n uint64) {
 	}
 }
 
-func (r cmRow) reset() {
+func (r cmRow) reset() { //计数减半
 	for i := range r {
 		r[i] = (r[i] >> 1) & 0x77
 	}
 }
 
-func (r cmRow) clear() {
+func (r cmRow) clear() { // 清空计数
 	for i := range r {
 		r[i] = 0
 	}

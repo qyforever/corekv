@@ -3,15 +3,15 @@ package cache
 import "container/list"
 
 type windowLRU struct {
-	data map[uint64]*list.Element
-	cap  int
+	data map[uint64]*list.Element //
+	cap  int                      //
 	list *list.List
 }
 
 type storeItem struct {
 	stage    int
 	key      uint64
-	conflict uint64
+	conflict uint64 //辅助冲突判断
 	value    interface{}
 }
 
@@ -26,7 +26,7 @@ func newWindowLRU(size int, data map[uint64]*list.Element) *windowLRU {
 func (lru *windowLRU) add(newitem storeItem) (eitem storeItem, evicted bool) {
 	//implement me here!!!
 	if lru.list.Len() < lru.cap {
-		lru.data[newitem.key] = lru.list.PushFront(&newitem)
+		lru.data[newitem.key] = lru.list.PushFront(&newitem) // 节点插到头部
 		return storeItem{}, false
 	}
 
