@@ -30,16 +30,16 @@ func (lru *windowLRU) add(newitem storeItem) (eitem storeItem, evicted bool) {
 		return storeItem{}, false
 	}
 
-	evictItem := lru.list.Back()
+	evictItem := lru.list.Back() //尾部元素
 	item := evictItem.Value.(*storeItem)
 
-	delete(lru.data, item.key)
+	delete(lru.data, item.key) // 删除尾部元素
 	eitem, *item = *item, newitem
-	lru.data[item.key] = lru.list.PushFront(evictItem)
+	lru.data[item.key] = lru.list.PushFront(evictItem) //把新数据放到头部
 	return eitem, true
 }
 
 func (lru *windowLRU) get(v *list.Element) {
 	//implement me here!!!
-	lru.list.MoveToFront(v)
+	lru.list.MoveToFront(v) //移动到链表最前端
 }

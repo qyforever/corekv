@@ -36,7 +36,7 @@ func NewCache(size int) *Cache {
 		slruSz = 1
 	}
 
-	slruO := int(0.2 * float64(slruSz)) // stageone
+	slruO := int(0.2 * float64(slruSz)) // stageone部分缓存容量
 
 	if slruO < 1 {
 		slruO = 1
@@ -76,24 +76,24 @@ func (c *Cache) set(key, value interface{}) bool {
 		return true
 	}
 
-	victim := c.slru.victim() //如果
+	victim := c.slru.victim() //如果LFU未满
 
-	if victim == nil {
+	if victim == nil { //
 		c.slru.add(eitem)
 		return true
 	}
 
 	//
-	if !c.door.Allow(uint32(keyHash)) {
+	if !c.door.Allow(uint32(keyHash)) { //
 		return true
 	}
-
+	//
 	vcount := c.c.Estimate(victim.key)
 	ocount := c.c.Estimate(eitem.key)
 
 	if ocount < vcount {
 		return true
-	}
+	} //
 
 	c.slru.add(eitem)
 	return true
