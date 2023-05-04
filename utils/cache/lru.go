@@ -38,7 +38,8 @@ func (lru *windowLRU) add(newitem storeItem) (eitem storeItem, evicted bool) {
 
 	delete(lru.data, item.key) // 删除尾部元素
 	eitem, *item = *item, newitem
-	lru.data[item.key] = lru.list.PushFront(evictItem) //把新数据放到头部
+	lru.data[item.key] = evictItem
+	lru.list.MoveToFront(evictItem) //把新数据放到头部
 	return eitem, true
 }
 
