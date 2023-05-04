@@ -76,7 +76,7 @@ func (c *Cache) set(key, value interface{}) bool {
 		return true
 	}
 
-	victim := c.slru.victim() //如果LFU未满
+	victim := c.slru.victim() //如果LFU满
 
 	if victim == nil { //
 		c.slru.add(eitem)
@@ -84,7 +84,7 @@ func (c *Cache) set(key, value interface{}) bool {
 	}
 
 	//
-	if !c.door.Allow(uint32(keyHash)) { //
+	if !c.door.Allow(uint32(eitem.key)) { //
 		return true
 	}
 	//
@@ -117,6 +117,7 @@ func (c *Cache) get(key interface{}) (interface{}, bool) {
 
 	val, ok := c.data[keyHash]
 	if !ok {
+		c.door.Allow(uint32(keyHash))
 		c.c.Increment(keyHash)
 		return nil, false
 	}
@@ -124,10 +125,11 @@ func (c *Cache) get(key interface{}) (interface{}, bool) {
 	item := val.Value.(*storeItem)
 
 	if item.conflict != conflictHash {
+		c.door.Allow(uint32(keyHash))
 		c.c.Increment(keyHash)
 		return nil, false
 	}
-
+	c.door.Allow(uint32(keyHash))
 	c.c.Increment(item.key)
 
 	v := item.value
@@ -212,4 +214,9 @@ func MemHashString(str string) uint64 {
 func MemHash(data []byte) uint64 {
 	ss := (*stringStruct)(unsafe.Pointer(&data))
 	return uint64(memhash(ss.str, 0, uintptr(ss.len)))
+}
+func (c *Cache) String() string {
+	var s string
+	s += c.lru.String() + " | " + c.slru.String()
+	return s
 }

@@ -1,6 +1,9 @@
 package cache
 
-import "container/list"
+import (
+	"container/list"
+	"fmt"
+)
 
 type windowLRU struct {
 	data map[uint64]*list.Element //
@@ -42,4 +45,11 @@ func (lru *windowLRU) add(newitem storeItem) (eitem storeItem, evicted bool) {
 func (lru *windowLRU) get(v *list.Element) {
 	//implement me here!!!
 	lru.list.MoveToFront(v) //移动到链表最前端
+}
+func (lru *windowLRU) String() string {
+	var s string
+	for e := lru.list.Front(); e != nil; e = e.Next() {
+		s += fmt.Sprintf("%v,", e.Value.(*storeItem).value)
+	}
+	return s
 }
