@@ -34,6 +34,7 @@ func newCache(opt *Options) *cache {
 	return &cache{indexs: utils.NewMap(), blocks: utils.NewMap()}
 }
 
+
 // TODO fid 使用字符串是不是会有性能损耗
 func (c *cache) addIndex(fid uint32, t *table) {
 	c.indexs.Set(fid, t)

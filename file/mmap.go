@@ -28,14 +28,15 @@ import (
 
 // MmapFile represents an mmapd file and includes both the buffer to the data and the file descriptor.
 type MmapFile struct {
-	Data []byte
-	Fd   *os.File
+	Data []byte   //
+	Fd   *os.File // 表示文件的结构体
 }
 
 // OpenMmapFileUsing os
+// 打开一个mmap文件，映射到虚拟内存空间
 func OpenMmapFileUsing(fd *os.File, sz int, writable bool) (*MmapFile, error) {
 	filename := fd.Name()
-	fi, err := fd.Stat()
+	fi, err := fd.Stat() //返回一个fileinfo接口
 	if err != nil {
 		return nil, errors.Wrapf(err, "cannot stat file: %s", filename)
 	}
