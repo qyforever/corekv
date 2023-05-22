@@ -32,7 +32,7 @@ import "io"
 
 // Options
 type Options struct {
-	FID      uint32
+	FID      uint64
 	FileName string
 	Dir      string
 	Path     string
