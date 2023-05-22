@@ -16,7 +16,6 @@ package lsm
 // TODO LAB 这里实现 序列化
 import (
 	"bytes"
-
 	"errors"
 	"fmt"
 	"github.com/hardcore-os/corekv/file"
@@ -38,6 +37,8 @@ type tableBuilder struct {
 	keyHashes  []uint32
 	maxVersion uint64
 	baseKey    []byte
+	//staleDataSize int
+	//estimateSz    int64
 }
 type buildData struct {
 	blockList []*block
@@ -54,6 +55,7 @@ type block struct {
 	baseKey           []byte
 	entryOffsets      []uint32
 	end               int
+	//estimateSz        int64
 }
 type header struct {
 	overlap uint16
@@ -63,7 +65,7 @@ type header struct {
 const headerSize = uint16(unsafe.Sizeof(header{}))
 
 func (h *header) decode(buf []byte) {
-	copy((*[headerSize]byte)(unsafe.Pointer(h))[:], buf[:headerSize])
+	copy(((*[headerSize]byte)(unsafe.Pointer(h))[:]), buf[:headerSize])
 }
 
 func (h header) encode() []byte {
@@ -95,7 +97,7 @@ func (tb *tableBuilder) add(e *codec.Entry) {
 	} else {
 		diffKey = tb.keyDiff(key)
 	}
-	utils.CondPanic(!(len(key)-len(diffKey) <= math.MaxUint16), fmt.Errorf("tableBuilder.add: len(key)-len(diffkey) <= math.Uint16"))
+	utils.CondPanic(!(len(key)-len(diffKey) <= math.MaxUint16), fmt.Errorf("tableBuilder.add: len(key)-len(diffkey) <= math.MaxUint16"))
 	utils.CondPanic(!(len(diffKey) <= math.MaxUint16), fmt.Errorf("tableBUilder.add: len(diffkey) <= math.MaxUint16"))
 
 	h := header{
@@ -128,8 +130,12 @@ func (tb *tableBuilder) tryFinishBlock(e *codec.Entry) bool {
 	}
 
 	utils.CondPanic(!((uint32(len(tb.curBlock.entryOffsets))+1)*4+4+8+4 < math.MaxUint32), errors.New("Integer overflow"))
-	entriesOffsetsSize := uint32((len(tb.curBlock.entryOffsets)+1)*4 + 4 + 8 + 4)
-	estimatedSize := uint32(tb.curBlock.end) + uint32(6) + uint32(len(e.Key)) + uint32(e.EncodedSize()) + entriesOffsetsSize
+	entriesOffsetsSize := uint32((len(tb.curBlock.entryOffsets)+1)*4 +
+		4 + // size of list
+		8 + // Sum64 in checksum proto
+		4) // checksum length
+	estimatedSize := uint32(tb.curBlock.end) + uint32(6 /*header size for entry*/) +
+		uint32(len(e.Key)) + uint32(e.EncodedSize()) + entriesOffsetsSize
 
 	utils.CondPanic(!(uint64(tb.curBlock.end)+uint64(estimatedSize) < math.MaxUint32), errors.New("Integer overflow"))
 	return estimatedSize > uint32(tb.opt.BlockSize)
