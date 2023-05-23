@@ -32,7 +32,7 @@ type SSTable struct {
 	maxKey         []byte
 	minKey         []byte
 	idxTables      *pb.TableIndex
-	hasBloomfilter bool
+	hasBloomFilter bool
 	idxLen         int
 	idxStart       int
 	fid            uint64
@@ -52,7 +52,7 @@ func (ss *SSTable) Init() error {
 	if ko, err = ss.initTable(); err != nil {
 		return err
 	}
-
+	// init min key
 	keyBytes := ko.GetKey()
 	minKey := make([]byte, len(keyBytes))
 	copy(minKey, keyBytes)
@@ -98,7 +98,7 @@ func (ss *SSTable) initTable() (bo *pb.BlockOffset, err error) {
 	}
 	ss.idxTables = indexTable
 
-	ss.hasBloomfilter = len(indexTable.BloomFilter) > 0
+	ss.hasBloomFilter = len(indexTable.BloomFilter) > 0
 	//如果 indexTable 对象中存在偏移量，那么将返回第一个偏移量对象，否则返回一个错误。
 	if len(indexTable.GetOffsets()) > 0 {
 		return indexTable.GetOffsets()[0], nil
@@ -123,7 +123,7 @@ func (ss *SSTable) FID() uint64 {
 }
 
 func (ss *SSTable) HasBloomFilter() bool {
-	return ss.hasBloomfilter
+	return ss.hasBloomFilter
 }
 
 func (ss *SSTable) read(off, sz int) ([]byte, error) {

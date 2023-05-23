@@ -54,7 +54,7 @@ type levelManifest struct {
 	Tables map[uint64]struct{} // Set of table id's
 }
 
-//TableMeta sst 的一些元信息
+// TableMeta sst 的一些元信息
 type TableMeta struct {
 	ID       uint64
 	Checksum []byte
@@ -362,7 +362,10 @@ func (mf *ManifestFile) RevertToManifest(idMap map[uint64]struct{}) error {
 	// 2. Delete files that shouldn't exist.
 	for id := range idMap {
 		if _, ok := mf.manifest.Tables[id]; !ok {
-			utils.Err(fmt.Errorf("Table file %d  not referenced in MANIFEST", id))
+			err := utils.Err(fmt.Errorf("Table file %d  not referenced in MANIFEST", id))
+			if err != nil {
+				return err
+			}
 			filename := utils.FileNameSSTable(mf.opt.Dir, id)
 			if err := os.Remove(filename); err != nil {
 				return errors.Wrapf(err, "While removing table %d", id)
