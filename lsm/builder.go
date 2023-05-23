@@ -1,32 +1,20 @@
-// Copyright 2021 hardcore-os Project Authors
-//
-// Licensed under the Apache License, Version 2.0 (the "License")
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-// http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
 // limitations under the License.
 package lsm
 
-// TODO LAB 这里实现 序列化
 import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
+	"math"
+	"sort"
+	"unsafe"
+
 	"github.com/hardcore-os/corekv/file"
 	"github.com/hardcore-os/corekv/iterator"
 	"github.com/hardcore-os/corekv/utils"
 	"github.com/hardcore-os/corekv/utils/codec"
 	"github.com/hardcore-os/corekv/utils/codec/pb"
-	"io"
-	"math"
-	"sort"
-	"unsafe"
 )
 
 type tableBuilder struct {
@@ -37,8 +25,6 @@ type tableBuilder struct {
 	keyHashes  []uint32
 	maxVersion uint64
 	baseKey    []byte
-	//staleDataSize int
-	//estimateSz    int64
 }
 type buildData struct {
 	blockList []*block
@@ -47,7 +33,7 @@ type buildData struct {
 	size      int
 }
 type block struct {
-	offset            int
+	offset            int //当前block的offset 首地址
 	checksum          []byte
 	entriesIndexStart int
 	chkLen            int
@@ -55,15 +41,16 @@ type block struct {
 	baseKey           []byte
 	entryOffsets      []uint32
 	end               int
-	//estimateSz        int64
 }
+
 type header struct {
-	overlap uint16
-	diff    uint16
+	overlap uint16 // Overlap with base key.
+	diff    uint16 // Length of the diff.
 }
 
 const headerSize = uint16(unsafe.Sizeof(header{}))
 
+// Decode decodes the header.
 func (h *header) decode(buf []byte) {
 	copy(((*[headerSize]byte)(unsafe.Pointer(h))[:]), buf[:headerSize])
 }
@@ -76,12 +63,12 @@ func (h header) encode() []byte {
 
 func (tb *tableBuilder) add(e *codec.Entry) {
 	key := e.Key
-	//检查当前block是否满// 检查是否需要分配一个新的 block
+	// 检查是否需要分配一个新的 block
 	if tb.tryFinishBlock(e) {
 		tb.finishBlock()
 		// Create a new block and start writing.
 		tb.curBlock = &block{
-			data: make([]byte, tb.opt.BlockSize),
+			data: make([]byte, tb.opt.BlockSize), // TODO 加密block后块的大小会增加，需要预留一些填充位置
 		}
 	}
 	tb.keyHashes = append(tb.keyHashes, utils.Hash(codec.ParseKey(key)))
@@ -97,8 +84,8 @@ func (tb *tableBuilder) add(e *codec.Entry) {
 	} else {
 		diffKey = tb.keyDiff(key)
 	}
-	utils.CondPanic(!(len(key)-len(diffKey) <= math.MaxUint16), fmt.Errorf("tableBuilder.add: len(key)-len(diffkey) <= math.MaxUint16"))
-	utils.CondPanic(!(len(diffKey) <= math.MaxUint16), fmt.Errorf("tableBUilder.add: len(diffkey) <= math.MaxUint16"))
+	utils.CondPanic(!(len(key)-len(diffKey) <= math.MaxUint16), fmt.Errorf("tableBuilder.add: len(key)-len(diffKey) <= math.MaxUint16"))
+	utils.CondPanic(!(len(diffKey) <= math.MaxUint16), fmt.Errorf("tableBuilder.add: len(diffKey) <= math.MaxUint16"))
 
 	h := header{
 		overlap: uint16(len(key) - len(diffKey)),
@@ -114,7 +101,7 @@ func (tb *tableBuilder) add(e *codec.Entry) {
 	e.EncodeEntry(dst)
 }
 
-func newTableBuilder(opt *Options) *tableBuilder {
+func newTableBuiler(opt *Options) *tableBuilder {
 	return &tableBuilder{
 		opt: opt,
 	}
@@ -128,7 +115,6 @@ func (tb *tableBuilder) tryFinishBlock(e *codec.Entry) bool {
 	if len(tb.curBlock.entryOffsets) <= 0 {
 		return false
 	}
-
 	utils.CondPanic(!((uint32(len(tb.curBlock.entryOffsets))+1)*4+4+8+4 < math.MaxUint32), errors.New("Integer overflow"))
 	entriesOffsetsSize := uint32((len(tb.curBlock.entryOffsets)+1)*4 +
 		4 + // size of list
@@ -137,21 +123,23 @@ func (tb *tableBuilder) tryFinishBlock(e *codec.Entry) bool {
 	estimatedSize := uint32(tb.curBlock.end) + uint32(6 /*header size for entry*/) +
 		uint32(len(e.Key)) + uint32(e.EncodedSize()) + entriesOffsetsSize
 
+	// Integer overflow check for table size.
 	utils.CondPanic(!(uint64(tb.curBlock.end)+uint64(estimatedSize) < math.MaxUint32), errors.New("Integer overflow"))
-	return estimatedSize > uint32(tb.opt.BlockSize)
 
+	return estimatedSize > uint32(tb.opt.BlockSize)
 }
 
 func (tb *tableBuilder) finishBlock() {
 	if tb.curBlock == nil || len(tb.curBlock.entryOffsets) == 0 {
 		return
 	}
-
+	// Append the entryOffsets and its length.
 	tb.append(codec.U32SliceToBytes(tb.curBlock.entryOffsets))
 	tb.append(codec.U32ToBytes(uint32(len(tb.curBlock.entryOffsets))))
 
 	checksum := tb.calculateChecksum(tb.curBlock.data[:tb.curBlock.end])
 
+	// Append the block checksum and its length.
 	tb.append(checksum)
 	tb.append(codec.U32ToBytes(uint32(len(checksum))))
 
@@ -161,19 +149,21 @@ func (tb *tableBuilder) finishBlock() {
 	return
 }
 
+// append appends to curBlock.data
 func (tb *tableBuilder) append(data []byte) {
 	dst := tb.allocate(len(data))
-	utils.CondPanic(len(data) != copy(dst, data), errors.New("tableBUilder.append data"))
+	utils.CondPanic(len(data) != copy(dst, data), errors.New("tableBuilder.append data"))
 }
 
 func (tb *tableBuilder) allocate(need int) []byte {
 	bb := tb.curBlock
-	if len(bb.data[bb.end:]) < need { // 剩余空间不足
+	if len(bb.data[bb.end:]) < need {
+		// We need to reallocate.
 		sz := 2 * len(bb.data)
 		if bb.end+need > sz {
 			sz = bb.end + need
 		}
-		tmp := make([]byte, sz)
+		tmp := make([]byte, sz) // todo 这里可以使用内存分配器来提升性能
 		copy(tmp, bb.data)
 		bb.data = tmp
 	}
@@ -182,8 +172,8 @@ func (tb *tableBuilder) allocate(need int) []byte {
 }
 
 func (tb *tableBuilder) calculateChecksum(data []byte) []byte {
-	checksum := utils.CalculateChecksum(data)
-	return codec.U64ToBytes(checksum)
+	checkSum := utils.CalculateChecksum(data)
+	return codec.U64ToBytes(checkSum)
 }
 
 func (tb *tableBuilder) keyDiff(newKey []byte) []byte {
@@ -196,6 +186,7 @@ func (tb *tableBuilder) keyDiff(newKey []byte) []byte {
 	return newKey[i:]
 }
 
+// TODO: 这里存在多次的用户空间拷贝过程，需要优化
 func (tb *tableBuilder) flush(sst *file.SSTable) error {
 	bd := tb.done()
 	buf := make([]byte, bd.size)
@@ -230,6 +221,7 @@ func (tb *tableBuilder) done() buildData {
 	bd := buildData{
 		blockList: tb.blockList,
 	}
+
 	var f utils.Filter
 	if tb.opt.BloomFalsePositive > 0 {
 		bits := utils.BloomBitsPerKey(len(tb.keyHashes), tb.opt.BloomFalsePositive)
@@ -272,7 +264,7 @@ func (tb *tableBuilder) writeBlockOffsets(tableIndex *pb.TableIndex) []*pb.Block
 	return offsets
 }
 
-func (tb *tableBuilder) writeBlockOffset(bl *block, startOffset uint32) *pb.BlockOffset {
+func (b *tableBuilder) writeBlockOffset(bl *block, startOffset uint32) *pb.BlockOffset {
 	offset := &pb.BlockOffset{}
 	offset.Key = bl.baseKey
 	offset.Len = uint32(bl.end)
@@ -297,7 +289,7 @@ type blockIterator struct {
 	tableID uint64
 	blockID int
 
-	preOverlap uint16
+	prevOverlap uint16
 
 	it iterator.Item
 }
@@ -306,20 +298,21 @@ func (itr *blockIterator) setBlock(b *block) {
 	itr.block = b
 	itr.err = nil
 	itr.idx = 0
-	itr.baseKey = b.baseKey[:0]
-	itr.preOverlap = 0
+	itr.baseKey = itr.baseKey[:0]
+	itr.prevOverlap = 0
 	itr.key = itr.key[:0]
 	itr.val = itr.val[:0]
-
+	// Drop the index from the block. We don't need it anymore.
 	itr.data = b.data[:b.entriesIndexStart]
 	itr.entryOffsets = b.entryOffsets
 }
 
 func (itr *blockIterator) seek(key []byte) {
 	itr.err = nil
-	startIndex := 0
+	startIndex := 0 // This tells from which index we should start binary search.
 
 	foundEntryIdx := sort.Search(len(itr.entryOffsets), func(idx int) bool {
+		// If idx is less than start index then just return false.
 		if idx < startIndex {
 			return false
 		}
@@ -331,13 +324,14 @@ func (itr *blockIterator) seek(key []byte) {
 
 func (itr *blockIterator) setIdx(i int) {
 	itr.idx = i
-	if i >= len(itr.entryOffsets) || i > 0 {
+	if i >= len(itr.entryOffsets) || i < 0 {
 		itr.err = io.EOF
 		return
 	}
 	itr.err = nil
 	startOffset := int(itr.entryOffsets[i])
 
+	// Set base key.
 	if len(itr.baseKey) == 0 {
 		var baseHeader header
 		baseHeader.decode(itr.data)
@@ -345,6 +339,7 @@ func (itr *blockIterator) setIdx(i int) {
 	}
 
 	var endOffset int
+	// idx points to the last entry in the block.
 	if itr.idx+1 == len(itr.entryOffsets) {
 		endOffset = len(itr.data)
 	} else {
@@ -355,9 +350,9 @@ func (itr *blockIterator) setIdx(i int) {
 	defer func() {
 		if r := recover(); r != nil {
 			var debugBuf bytes.Buffer
-			fmt.Fprintf(&debugBuf, "===Recovered===\n")
+			fmt.Fprintf(&debugBuf, "==== Recovered====\n")
 			fmt.Fprintf(&debugBuf, "Table ID: %d\nBlock ID: %d\nEntry Idx: %d\nData len: %d\n"+
-				"startOffset: %d\nEndOffset: %d\nEntryOffsets len: %d\nEntryOffsets: %v\n",
+				"StartOffset: %d\nEndOffset: %d\nEntryOffsets len: %d\nEntryOffsets: %v\n",
 				itr.tableID, itr.blockID, itr.idx, len(itr.data), startOffset, endOffset,
 				len(itr.entryOffsets), itr.entryOffsets)
 			panic(debugBuf.String())
@@ -367,11 +362,11 @@ func (itr *blockIterator) setIdx(i int) {
 	entryData := itr.data[startOffset:endOffset]
 	var h header
 	h.decode(entryData)
-	if h.overlap > itr.preOverlap {
-		itr.key = append(itr.key[:itr.preOverlap], itr.baseKey[itr.preOverlap:h.overlap]...)
+	if h.overlap > itr.prevOverlap {
+		itr.key = append(itr.key[:itr.prevOverlap], itr.baseKey[itr.prevOverlap:h.overlap]...)
 	}
 
-	itr.preOverlap = h.overlap
+	itr.prevOverlap = h.overlap
 	valueOff := headerSize + h.diff
 	diffKey := entryData[headerSize:valueOff]
 	itr.key = append(itr.key[:h.overlap], diffKey...)

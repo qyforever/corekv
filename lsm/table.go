@@ -17,36 +17,34 @@ package lsm
 import (
 	"encoding/binary"
 	"fmt"
+	"io"
+	"math"
+	"os"
+	"sort"
+	"strings"
+
 	"github.com/hardcore-os/corekv/file"
 	"github.com/hardcore-os/corekv/iterator"
 	"github.com/hardcore-os/corekv/utils"
 	"github.com/hardcore-os/corekv/utils/codec"
 	"github.com/hardcore-os/corekv/utils/codec/pb"
 	"github.com/pkg/errors"
-
-	"io"
-	"math"
-	"os"
-	"sort"
-	"strings"
 )
 
-// TODO LAB 这里实现 table
 type table struct {
 	ss  *file.SSTable
 	lm  *levelManager
 	fid uint64
 }
 
-func openTable(lm *levelManager, tablename string, builder *tableBuilder) *table {
-	ss := file.OpenSSTable(&file.Options{
-		FileName: tablename,
+func openTable(lm *levelManager, tableName string, builder *tableBuilder) *table {
+	ss := file.OpenSStable(&file.Options{
+		FileName: tableName,
 		Dir:      lm.opt.WorkDir,
 		Flag:     os.O_CREATE | os.O_RDWR,
-		MaxSz:    int(lm.opt.SSTableMaxSz),
-	})
-	t := &table{ss: ss, lm: lm, fid: utils.FID(tablename)}
-
+		MaxSz:    int(lm.opt.SSTableMaxSz)})
+	t := &table{ss: ss, lm: lm, fid: utils.FID(tableName)}
+	// 对builder来flush到此篇
 	if builder != nil {
 		if err := builder.flush(ss); err != nil {
 			utils.Err(err)
@@ -60,11 +58,12 @@ func openTable(lm *levelManager, tablename string, builder *tableBuilder) *table
 	return t
 }
 
-func (t *table) Search(key []byte, maxVs *uint64) (entry *codec.Entry, err error) {
+// Serach 从table中查找key
+func (t *table) Serach(key []byte, maxVs *uint64) (entry *codec.Entry, err error) {
 	// 获取索引
 	idx := t.ss.Indexs()
-	bloomFilter := utils.Filter(idx.BloomFilter)
 	// 检查key是否存在
+	bloomFilter := utils.Filter(idx.BloomFilter)
 	if t.ss.HasBloomFilter() && !bloomFilter.MayContainKey(key) {
 		return nil, utils.ErrKeyNotFound
 	}
@@ -130,7 +129,7 @@ func (t *table) block(idx int) (*block, error) {
 			t.ss.FID(), b.offset, ko.GetLen())
 	}
 
-	readPos := len(b.data) - 4
+	readPos := len(b.data) - 4 // First read checksum length.
 	b.chkLen = int(codec.BytesToU32(b.data[readPos : readPos+4]))
 
 	if b.chkLen > len(b.data) {
@@ -150,13 +149,13 @@ func (t *table) block(idx int) (*block, error) {
 
 	b.entriesIndexStart = entriesIndexStart
 
-	b.data = b.data[:readPos]
+	b.data = b.data[:readPos+4]
 
 	if err = b.verifyCheckSum(); err != nil {
 		return nil, err
 	}
 
-	t.lm.cache.blocks.Set(key, b) //加入缓存中
+	t.lm.cache.blocks.Set(key, b)
 
 	return b, nil
 }
@@ -165,12 +164,13 @@ func (t *table) read(off, sz int) ([]byte, error) {
 	return t.ss.Bytes(off, sz)
 }
 
+// blockCacheKey is used to store blocks in the block cache.
 func (t *table) blockCacheKey(idx int) []byte {
 	utils.CondPanic(t.fid >= math.MaxUint32, fmt.Errorf("t.fid >= math.MaxUint32"))
-	utils.CondPanic(uint32(idx) >= math.MaxUint32, fmt.Errorf("uint32(idx) >= math.MaxUint32"))
+	utils.CondPanic(uint32(idx) >= math.MaxUint32, fmt.Errorf("uint32(idx) >=  math.MaxUint32"))
 
 	buf := make([]byte, 8)
-
+	// Assume t.ID does not overflow uint32.
 	binary.BigEndian.PutUint32(buf[:4], uint32(t.fid))
 	binary.BigEndian.PutUint32(buf[4:], uint32(idx))
 	return buf
@@ -218,21 +218,20 @@ func (it *tableIterator) Seek(key []byte) {
 		utils.CondPanic(!it.t.offsets(&ko, idx), fmt.Errorf("tableIterator.Seek idx < 0 || idx > len(index.GetOffsets()"))
 		return utils.CompareKeys(ko.GetKey(), key) > 0
 	})
-
 	if idx == 0 {
-		it.SeekHelper(0, key)
+		it.seekHelper(0, key)
 		return
 	}
-	it.SeekHelper(idx-1, key)
+	it.seekHelper(idx-1, key)
 	if it.err == io.EOF {
 		if idx == len(it.t.ss.Indexs().Offsets) {
 			return
 		}
-		it.SeekHelper(idx, key)
+		it.seekHelper(idx, key)
 	}
 }
 
-func (it *tableIterator) SeekHelper(blockIdx int, key []byte) {
+func (it *tableIterator) seekHelper(blockIdx int, key []byte) {
 	it.blockPos = blockIdx
 	block, err := it.t.block(blockIdx)
 	if err != nil {

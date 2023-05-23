@@ -2,7 +2,6 @@ package lsm
 
 import (
 	"bytes"
-
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -20,7 +19,6 @@ type levelManager struct {
 	manifestFile *file.ManifestFile
 	levels       []*levelHandler
 }
-
 type levelHandler struct {
 	sync.RWMutex
 	levelNum int
@@ -33,7 +31,6 @@ func (lh *levelHandler) close() error {
 func (lh *levelHandler) add(t *table) {
 	lh.tables = append(lh.tables, t)
 }
-
 func (lh *levelHandler) Get(key []byte) (*codec.Entry, error) {
 	// 如果是第0层文件则进行特殊处理
 	if lh.levelNum == 0 {
@@ -45,11 +42,12 @@ func (lh *levelHandler) Get(key []byte) (*codec.Entry, error) {
 		return lh.searchLNSST(key)
 	}
 }
-
 func (lh *levelHandler) Sort() {
 	lh.Lock()
 	defer lh.Unlock()
 	if lh.levelNum == 0 {
+		// Key range will overlap. Just sort by fileID in ascending order
+		// because newer tables are at the end of level 0.
 		sort.Slice(lh.tables, func(i, j int) bool {
 			return lh.tables[i].fid < lh.tables[j].fid
 		})
@@ -60,11 +58,10 @@ func (lh *levelHandler) Sort() {
 		})
 	}
 }
-
 func (lh *levelHandler) searchL0SST(key []byte) (*codec.Entry, error) {
 	var version uint64
 	for _, table := range lh.tables {
-		if entry, err := table.Search(key, &version); err == nil {
+		if entry, err := table.Serach(key, &version); err == nil {
 			return entry, nil
 		}
 	}
@@ -76,7 +73,7 @@ func (lh *levelHandler) searchLNSST(key []byte) (*codec.Entry, error) {
 	if table == nil {
 		return nil, utils.ErrKeyNotFound
 	}
-	if entry, err := table.Search(key, &version); err == nil {
+	if entry, err := table.Serach(key, &version); err == nil {
 		return entry, nil
 	}
 	return nil, utils.ErrKeyNotFound
@@ -104,7 +101,6 @@ func (lm *levelManager) close() error {
 	}
 	return nil
 }
-
 func (lm *levelManager) Get(key []byte) (*codec.Entry, error) {
 	var (
 		entry *codec.Entry
@@ -154,7 +150,6 @@ func (lm *levelManager) build() error {
 			tables:   make([]*table, 0),
 		})
 	}
-
 	manifest := lm.manifestFile.GetManifest()
 	// 对比manifest 文件的正确性
 	if err := lm.manifestFile.RevertToManifest(utils.LoadIDMap(lm.opt.WorkDir)); err != nil {
@@ -182,12 +177,12 @@ func (lm *levelManager) build() error {
 
 // 向L0层flush一个sstable
 func (lm *levelManager) flush(immutable *memTable) error {
-	// TODO LAB
+	// 分配一个fid
 	nextID := atomic.AddUint64(&lm.maxFid, 1)
 	sstName := utils.FileNameSSTable(lm.opt.WorkDir, nextID)
 
 	// 构建一个 builder
-	builder := newTableBuilder(lm.opt)
+	builder := newTableBuiler(lm.opt)
 	iter := immutable.sl.NewIterator(&iterator.Options{})
 	for iter.Rewind(); iter.Valid(); iter.Next() {
 		entry := iter.Item().Entry()
@@ -201,5 +196,6 @@ func (lm *levelManager) flush(immutable *memTable) error {
 		ID:       nextID,
 		Checksum: []byte{'m', 'o', 'c', 'k'},
 	})
-	return nil
+	// TODO LAB
+
 }
