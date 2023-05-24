@@ -147,7 +147,7 @@ func (lm *levelManager) flush(immutable *memTable) (err error) {
 	return
 }
 
-//--------- level处理器 -------
+// --------- level处理器 -------
 type levelHandler struct {
 	sync.RWMutex
 	levelNum       int
